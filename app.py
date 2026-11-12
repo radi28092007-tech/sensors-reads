@@ -16,6 +16,7 @@ app.register_blueprint(advice_bp)
 
 session_logs = []
 sensor_readings = []  
+sensor_session_active = False
 MAX_SENSOR_READINGS = 20000
 MAX_SENSOR_BATCH = 500
 SENSOR_RANGES = {
@@ -84,7 +85,6 @@ def continue_session():
             now = time.time()
             if session["started_at"] is None:
                 session_logs.clear()
-                sensor_readings.clear()
                 session["started_at"] = now
                 session["duration_seconds"] = 0
             session["active"] = True
@@ -115,6 +115,24 @@ def session_status():
     return jsonify({"status": "success", **info})
 
 
+@app.route("/api/sensor-session", methods=["GET", "POST"])
+def sensor_session_route():
+    global sensor_session_active
+
+    if request.method == "GET":
+        with state_lock:
+            active = sensor_session_active
+        return jsonify({"status": "success", "active": active})
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("active"), bool):
+        return jsonify({"status": "error", "message": "'active' must be a boolean"}), 400
+
+    with state_lock:
+        sensor_session_active = data["active"]
+    return jsonify({"status": "success", "active": sensor_session_active})
+
+
 @app.route("/api/sensors", methods=["GET", "POST"])
 def sensor_readings_route():
     if request.method == "GET":
@@ -123,8 +141,8 @@ def sensor_readings_route():
         return jsonify({"status": "success", "readings": readings})
 
     with state_lock:
-        if not session["active"]:
-            return jsonify({"status": "inactive", "message": "No active session"}), 409
+        if not sensor_session_active:
+            return jsonify({"status": "inactive", "message": "Bracelet readings are not active"}), 409
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -159,8 +177,8 @@ def sensor_readings_route():
         accepted.append({"type": kind, "value": value, "ts": timestamp})
 
     with state_lock:
-        if not session["active"]:
-            return jsonify({"status": "inactive", "message": "No active session"}), 409
+        if not sensor_session_active:
+            return jsonify({"status": "inactive", "message": "Bracelet readings are not active"}), 409
         sensor_readings.extend(accepted)
         if len(sensor_readings) > MAX_SENSOR_READINGS:
             del sensor_readings[:-MAX_SENSOR_READINGS]
