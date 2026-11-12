@@ -18,19 +18,28 @@
         #start-btn { background: #1fa855; }
         #start-btn:hover:not(:disabled) { background: #178a45; }
         #advisor { background: #555; }
-        #advisor:hover:not(:disabled) { background: #444; }
+        #advisor:hover { background: #444; }
         #stop-btn { background: #ff3344; }
         #stop-btn:hover:not(:disabled) { background: #d62839; }
+        #start-bracelet-btn { background: #1fa855; }
+        #start-bracelet-btn:hover:not(:disabled) { background: #178a45; }
+        #stop-bracelet-btn { background: #ff3344; }
+        #stop-bracelet-btn:hover:not(:disabled) { background: #d62839; }
         #reset-btn { background: #555; margin-top: 15px; }
         #reset-btn:hover:not(:disabled) { background: #444; }
         #session-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; background: #444; }
         #session-badge.running { background: #1fa855; }
+        #advisor-dialog { width: min(1100px, calc(100vw - 32px)); height: min(850px, calc(100vh - 32px)); max-width: none; max-height: none; padding: 12px; border: 0; border-radius: 12px; background: #1a1a24; color: #fff; }
+        #advisor-dialog::backdrop { background: rgba(0, 0, 0, 0.8); }
+        .advisor-dialog-header { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+        #close-advisor { margin: 0; background: #555; }
+        #advisor-frame { width: 100%; height: calc(100% - 52px); border: 0; border-radius: 8px; background: #1a1a24; }
     </style>
 </head>
 <body>
 
     <h1>Expression Analytics Platform</h1>
-    <span id="session-badge">Session stopped</span>
+    <span id="session-badge">Camera session stopped</span>
 
     <div class="dashboard">
         <div>
@@ -40,9 +49,9 @@
                 <span id="emotion-output">Press Start</span>
             </div>
             <div class="controls">
-                <button id="start-btn" onclick="startSession()">Start / continue session</button>
-                <button id="stop-btn" onclick="stopSession()" disabled>Stop session</button>
-                <button id="advisor" onclick="window.location.href='/advisor.html'">Wellbeing Advisor</button>
+                <button id="start-btn" onclick="startSession()">Start / continue camera</button>
+                <button id="stop-btn" onclick="stopSession()" disabled>Stop camera</button>
+                <button id="advisor" type="button">Wellbeing Advisor</button>
             </div>
         </div>
 
@@ -52,6 +61,13 @@
             <button id="reset-btn" onclick="resetSession()">Reset Timeline</button>
         </div>
     </div>
+
+    <dialog id="advisor-dialog" aria-label="Wellbeing Advisor">
+        <div class="advisor-dialog-header">
+            <button id="close-advisor" type="button">Close advisor</button>
+        </div>
+        <iframe id="advisor-frame" data-src="/advisor.html" title="Wellbeing Advisor"></iframe>
+    </dialog>
 
     <canvas id="capture-canvas" width="640" height="480" style="display:none;"></canvas>
 
@@ -64,6 +80,9 @@
         const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
         const resetBtn = document.getElementById('reset-btn');
+        const advisorBtn = document.getElementById('advisor');
+        const advisorDialog = document.getElementById('advisor-dialog');
+        const closeAdvisorBtn = document.getElementById('close-advisor');
         const ctx = canvas.getContext('2d');
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const post = url => fetch(url, { method: 'POST' }).then(r => r.json());
@@ -80,6 +99,16 @@
         const probe = document.createElement('canvas');
         probe.width = 16; probe.height = 12;
         const pctx = probe.getContext('2d', { willReadFrequently: true });
+
+        const advisorFrame = document.getElementById('advisor-frame');
+        advisorBtn.addEventListener('click', () => {
+            if (!advisorFrame.dataset.loaded) {
+                advisorFrame.src = advisorFrame.dataset.src;
+                advisorFrame.dataset.loaded = 'true';
+            }
+            advisorDialog.showModal();
+        });
+        closeAdvisorBtn.addEventListener('click', () => advisorDialog.close());
 
         function stopCamera() {
             if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -99,9 +128,17 @@
                     return false;
                 }
 
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
-                });
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+                    });
+                } catch (err) {
+                    if (!["NotReadableError", "OverconstrainedError", "AbortError"].includes(err.name)) {
+                        throw err;
+                    }
+                    console.warn("Preferred camera settings failed; retrying with default settings.", err);
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                }
                 stream.getVideoTracks().forEach(t => {
                     t.onended = () => { if (running && !document.hidden) restartCamera("Camera stopped, restarting..."); };
                     t.onmute = () => { if (running && !document.hidden) restartCamera("Camera frozen, restarting..."); };
@@ -110,7 +147,13 @@
                 await video.play().catch(() => {});
                 return true;
             } catch (err) {
-                output.innerText = "Camera Blocked (" + err.name + ")";
+                console.error("Camera startup failed:", err);
+                const message = err.name === "NotReadableError"
+                    ? "Camera is busy or unavailable. Close apps/tabs using it, then retry."
+                    : err.name === "NotAllowedError"
+                        ? "Camera permission is blocked. Allow camera access for this site."
+                        : `Camera could not start (${err.name}). Check browser and Windows camera settings.`;
+                output.innerText = message;
                 return false;
             } finally {
                 starting = false;
@@ -150,7 +193,7 @@
             running = isRunning;
             startBtn.disabled = isRunning;
             stopBtn.disabled = !isRunning;
-            badge.textContent = isRunning ? "Session running" : "Session stopped";
+            badge.textContent = isRunning ? "Camera session running" : "Camera session stopped";
             badge.classList.toggle('running', isRunning);
         }
 
@@ -199,13 +242,10 @@
         <section>
         <h3>Bracelet connection</h3>
 
-        <button id="connect-bracelet" type="button">
-            Connect bracelet
-        </button>
-
-        <button id="disconnect-bracelet" type="button" disabled>
-            Disconnect bracelet
-        </button>
+        <button id="connect-bracelet" type="button">Connect bracelet</button>
+        <button id="disconnect-bracelet" type="button" disabled>Disconnect bracelet</button>
+        <button id="start-bracelet-btn" type="button" disabled>Start bracelet readings</button>
+        <button id="stop-bracelet-btn" type="button" disabled>Stop bracelet readings</button>
 
         <label>
             <input id="allow-bracelet-test" type="checkbox">
@@ -213,7 +253,7 @@
         </label>
 
         <p id="bracelet-status" role="status">
-            Bracelet disconnected.
+            Bracelet disconnected. Camera and bracelet readings can be started independently.
         </p>
         </section>
 
