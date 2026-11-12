@@ -127,7 +127,7 @@ def compute_facts(p):
     if w and h and 100 < h < 250 and 20 < w < 300:
         bmi = round(w / (h / 100) ** 2, 1)
         facts["bmi"] = bmi
-        if age and age >= 18:
+        if age and age >= 16: 
             facts["bmi_range"] = ("below typical range" if bmi < 18.5 else
                                   "typical range" if bmi < 25 else "above typical range")
 
