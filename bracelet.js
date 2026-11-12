@@ -3,13 +3,15 @@
 const UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const UART_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-const PACKET_SIZE = 11; // will change later
+const PACKET_SIZE = 26;
 
-// This is the endpoint confirmed working in your terminal.
+// sensors endpoint, shows readings in a json
 const SENSOR_URL = "/api/sensors";
 
 const connectButton = document.getElementById("connect-bracelet");
 const disconnectButton = document.getElementById("disconnect-bracelet");
+const startReadingsButton = document.getElementById("start-bracelet-btn");
+const stopReadingsButton = document.getElementById("stop-bracelet-btn");
 const allowTestCheckbox = document.getElementById("allow-bracelet-test");
 const statusElement = document.getElementById("bracelet-status");
 
@@ -17,6 +19,8 @@ let braceletDevice = null;
 let txCharacteristic = null;
 let pendingBytes = new Uint8Array(0);
 let connecting = false;
+let readingActive = false;
+let changingReadingState = false;
 
 function setBraceletStatus(message) {
   statusElement.textContent = message;
@@ -26,6 +30,8 @@ function updateButtons() {
   const connected = Boolean(braceletDevice?.gatt?.connected);
   connectButton.disabled = connecting || connected;
   disconnectButton.disabled = !connected;
+  startReadingsButton.disabled = !connected || readingActive || changingReadingState;
+  stopReadingsButton.disabled = !connected || !readingActive || changingReadingState;
 }
 
 function resetConnection() {
@@ -35,14 +41,19 @@ function resetConnection() {
       receiveReading
     );
   }
+  
 
   txCharacteristic = null;
+  readingActive = false;
   pendingBytes = new Uint8Array(0);
   updateButtons();
 }
 
 function onBraceletDisconnected() {
   resetConnection();
+  void setBackendReadingState(false).catch(error => {
+    console.error("Could not stop backend sensor session:", error);
+  });
   setBraceletStatus("Bracelet disconnected.");
 }
 
@@ -76,16 +87,7 @@ async function connectBracelet() {
     txCharacteristic = await service.getCharacteristic(UART_TX);
     pendingBytes = new Uint8Array(0);
 
-    txCharacteristic.addEventListener(
-      "characteristicvaluechanged",
-      receiveReading
-    );
-
-    await txCharacteristic.startNotifications();
-
-    setBraceletStatus(
-      "Bracelet connected. Start a dashboard session to save readings."
-    );
+    setBraceletStatus("Bracelet connected. Start bracelet readings when ready.");
   } catch (error) {
     console.error("Bluetooth connection failed:", error);
 
@@ -102,14 +104,105 @@ async function connectBracelet() {
 }
 
 function disconnectBracelet() {
+  if (readingActive) {
+    void stopBraceletReadings().finally(() => {
+      if (braceletDevice?.gatt?.connected) braceletDevice.gatt.disconnect();
+    });
+    return;
+  }
   if (braceletDevice?.gatt?.connected) {
     braceletDevice.gatt.disconnect();
   }
 }
 
-// Receives raw BLE bytes. Buffering supports fragmented notifications
-// and notifications containing multiple packets.
+async function setBackendReadingState(active) {
+  const response = await fetch("/api/sensor-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active })
+  });
+  const data = await response.json();
+  if (!response.ok || data.status !== "success") {
+    throw new Error(data.message || `HTTP ${response.status}`);
+  }
+}
+
+async function startBraceletReadings() {
+  if (!txCharacteristic || !braceletDevice?.gatt?.connected || changingReadingState) return;
+  changingReadingState = true;
+  updateButtons();
+  try {
+    await setBackendReadingState(true);
+    readingActive = true;
+    txCharacteristic.addEventListener("characteristicvaluechanged", receiveReading);
+    await txCharacteristic.startNotifications();
+    setBraceletStatus("Bracelet readings active. This is separate from the camera session.");
+  } catch (error) {
+    readingActive = false;
+    txCharacteristic?.removeEventListener("characteristicvaluechanged", receiveReading);
+    try {
+      await setBackendReadingState(false);
+    } catch (rollbackError) {
+      console.error("Could not stop backend sensor session:", rollbackError);
+    }
+    console.error("Could not start bracelet readings:", error);
+    setBraceletStatus(`Could not start bracelet readings: ${error.message}`);
+  } finally {
+    changingReadingState = false;
+    updateButtons();
+  }
+}
+
+async function stopBraceletReadings() {
+  if (changingReadingState || !readingActive) return;
+  changingReadingState = true;
+  updateButtons();
+  try {
+    await setBackendReadingState(false);
+    readingActive = false;
+    if (txCharacteristic) {
+      txCharacteristic.removeEventListener("characteristicvaluechanged", receiveReading);
+    }
+    pendingBytes = new Uint8Array(0);
+    if (txCharacteristic) {
+      await txCharacteristic.stopNotifications();
+    }
+    setBraceletStatus("Bracelet readings stopped. The camera session is unchanged.");
+  } catch (error) {
+    console.error("Could not stop bracelet readings:", error);
+    setBraceletStatus(`Could not stop bracelet readings: ${error.message}`);
+  } finally {
+    changingReadingState = false;
+    updateButtons();
+  }
+}
+
+// Matches the packed Payload struct in the XIAO firmware (little-endian,
+// 32-bit long values on nRF52840).
+function decodePacket(packet) {
+  if (packet.byteLength !== PACKET_SIZE) {
+    throw new Error(`Expected ${PACKET_SIZE}-byte bracelet packet`);
+  }
+
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  return {
+    deviceId: view.getUint16(0, true),
+    sequence: view.getUint32(2, true),
+    uptimeMs: view.getUint32(6, true),
+    heartBpm: view.getUint8(10),
+    heartLastBeat: view.getUint32(11, true),
+    irValue: view.getInt32(15, true),
+    redValue: view.getInt32(19, true),
+    battery: view.getUint8(23),
+    isTest: view.getUint8(24),
+    flags: view.getUint8(25),
+    receivedAt: Date.now() / 1000
+  };
+}
+
+// BLE UART is a byte stream, so notifications can split or combine packets.
 function receiveReading(event) {
+  if (!readingActive) return;
   const value = event.target.value;
 
   const incoming = new Uint8Array(
@@ -130,21 +223,7 @@ function receiveReading(event) {
     const packet = pendingBytes.slice(0, PACKET_SIZE);
     pendingBytes = pendingBytes.slice(PACKET_SIZE);
 
-    const view = new DataView(
-      packet.buffer,
-      packet.byteOffset,
-      packet.byteLength
-    );
-
-    // Matches Python struct.Struct("<IIBBB").
-    const reading = {
-      sequence: view.getUint32(0, true),
-      uptimeMs: view.getUint32(4, true),
-      heartBpm: view.getUint8(8),
-      battery: view.getUint8(9),
-      flags: view.getUint8(10),
-      receivedAt: Date.now() / 1000
-    };
+    const reading = decodePacket(packet);
 
     console.log("Bracelet reading:", reading);
     void sendReading(reading);
@@ -152,20 +231,19 @@ function receiveReading(event) {
 }
 
 async function sendReading(reading) {
-  const { sequence, heartBpm, flags, receivedAt } = reading;
+  const { sequence, heartBpm, flags, isTest, receivedAt } = reading;
 
-  // Current protocol: 0 = normal, 1 = test, 2 = error.
-  if (![0, 1, 2].includes(flags)) {
-    setBraceletStatus(`Skipped unknown flags: ${flags}`);
+  if (flags !== 0) {
+    setBraceletStatus(`Bracelet reported an error (flag ${flags}); reading skipped.`);
     return;
   }
 
-  if (flags === 2) {
-    setBraceletStatus("Skipped a device error reading.");
+  if (isTest !== 0 && isTest !== 1) {
+    setBraceletStatus(`Skipped unknown test flag: ${isTest}`);
     return;
   }
 
-  if (flags === 1 && !allowTestCheckbox.checked) {
+  if (isTest === 1 && !allowTestCheckbox.checked) {
     setBraceletStatus(
       "Test reading skipped. Enable simulated readings for demo testing."
     );
@@ -196,7 +274,7 @@ async function sendReading(reading) {
 
     if (response.status === 409) {
       setBraceletStatus(
-        "Bracelet connected. Start a session in the dashboard first."
+        "Start bracelet readings in the dashboard before sending sensor data."
       );
       return;
     }
@@ -211,7 +289,7 @@ async function sendReading(reading) {
       return;
     }
 
-    const label = flags === 1 ? "SIMULATED" : "Device";
+    const label = isTest === 1 ? "SIMULATED" : "Device";
 
     setBraceletStatus(
       `${label} reading saved: ${heartBpm} BPM — sequence ${sequence}`
@@ -226,4 +304,13 @@ async function sendReading(reading) {
 
 connectButton.addEventListener("click", connectBracelet);
 disconnectButton.addEventListener("click", disconnectBracelet);
+startReadingsButton.addEventListener("click", startBraceletReadings);
+stopReadingsButton.addEventListener("click", stopBraceletReadings);
 updateButtons();
+
+window.addEventListener("pagehide", () => {
+  if (readingActive) {
+    navigator.sendBeacon("/api/sensor-session",
+      new Blob([JSON.stringify({ active: false })], { type: "application/json" }));
+  }
+});
