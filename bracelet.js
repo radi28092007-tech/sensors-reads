@@ -3,7 +3,7 @@
 const UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const UART_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-const PACKET_SIZE = 26;
+const PACKET_SIZE = 26; // can change in the future
 
 // sensors endpoint, shows readings in a json
 const SENSOR_URL = "/api/sensors";
@@ -177,8 +177,7 @@ async function stopBraceletReadings() {
   }
 }
 
-// Matches the packed Payload struct in the XIAO firmware (little-endian,
-// 32-bit long values on nRF52840).
+
 function decodePacket(packet) {
   if (packet.byteLength !== PACKET_SIZE) {
     throw new Error(`Expected ${PACKET_SIZE}-byte bracelet packet`);
@@ -200,7 +199,6 @@ function decodePacket(packet) {
   };
 }
 
-// BLE UART is a byte stream, so notifications can split or combine packets.
 function receiveReading(event) {
   if (!readingActive) return;
   const value = event.target.value;
