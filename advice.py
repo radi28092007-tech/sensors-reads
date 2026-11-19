@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
+from analytics_bridge import clean_readings, heart_readings
 
 def load_env():
     path = os.path.join(os.path.dirname(__file__), ".env")
@@ -38,7 +39,6 @@ DISCLAIMER = (
     "This is general lifestyle advice to support self-awareness. It is not medical advice "
     "and not a diagnosis. If you are worried about your health, talk to a doctor."
 )
-HR_MIN, HR_MAX = 30, 220            
 NEGATIVE = {"sad", "angry", "fear", "disgust"}
 UNSAFE_OUTPUT = re.compile(r"diagnos|prescri|medicat|\bmg\b|disorder|you (have|suffer)", re.I)
 
@@ -134,18 +134,15 @@ def compute_facts(p):
     readings = p.get("readings") if isinstance(p.get("readings"), list) else []
     readings = readings[:20000]
 
-    hr, hr_total = _series(readings, "heart_rate", HR_MIN, HR_MAX)
-    buffered_samples = 0
-    for reading in readings:
-        if not isinstance(reading, dict) or reading.get("type") != "heart_rate" or reading.get("buffered") is not True:
-            continue
-        value, timestamp = _num(reading.get("value")), _num(reading.get("ts"))
-        if value is not None and timestamp is not None and HR_MIN <= value <= HR_MAX:
-            buffered_samples += 1
+    usable, report = clean_readings(heart_readings(readings))
+    hr = sorted((reading["measured_ts"], reading["heart_bpm"]) for reading in usable)
     facts["heart_rate"] = {
         "samples": len(hr),
-        "discarded_invalid": hr_total - len(hr),
-        "buffered_samples": buffered_samples,
+        "discarded_invalid": report["removed"],
+        "buffered_samples": sum(1 for reading in usable if reading.get("buffered")),
+        "removed_why": report["removed_why"],
+        "lost": report["lost"],
+        "simulated": report["test_data"],
     }
     if len(hr) >= 5:
         vals = [v for _, v in hr]
@@ -286,8 +283,14 @@ def _llm_facts(facts):
     """Only send what we actually have, small models talk about empty fields otherwise."""
     out = {}
     for k, v in facts.items():
-        if k == "heart_rate" and v.get("samples", 0) == 0:
-            continue
+        if k == "heart_rate":
+            if v.get("samples", 0) == 0:
+                continue
+            v = {
+                key: value
+                for key, value in v.items()
+                if key not in ("removed_why", "lost", "simulated")
+            }
         if k == "profile":
             v = {a: b for a, b in v.items() if b}
         if v:
