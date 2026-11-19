@@ -11,6 +11,7 @@ const FLAG_BUFFER_OVERFLOW = 0x04;
 const FLAG_LOW_BATTERY = 0x08;
 const FLAG_POOR_WRIST_CONTACT = 0x10;
 const FLAG_OFFLINE_BUFFERING = 0x20;
+const FLAG_SIMULATION_MODE = 0x40;
 const FLAG_BATTERY_CHARGING = 0x80;
 
 // Do NOT include FLAG_BUFFER_OVERFLOW here: the firmware latches 0x04 on valid
