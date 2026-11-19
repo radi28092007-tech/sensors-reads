@@ -172,6 +172,17 @@ select:focus-visible {
   letter-spacing: 1px;
 }
 
+.login-link {
+  margin-right: 12px;
+  color: var(--green);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.login-link:hover {
+  text-decoration: underline;
+}
+
 .content {
   max-width: 1250px;
   margin: auto;
@@ -385,6 +396,64 @@ textarea::placeholder { color: #718174; }
 }
 
 .chart-column small { color: var(--muted); }
+
+.heart-chart {
+  gap: 6px;
+}
+
+.heart-chart .chart-column small {
+  font-size: 10px;
+}
+
+.heart-card { margin-bottom: 20px; }
+.heart-card .section-heading { flex-wrap: wrap; }
+.hr-ranges { display: flex; gap: 6px; }
+.hr-ranges button {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.hr-ranges button[aria-pressed="true"] { background: #2a3a2b; color: var(--text); border-color: #4a5f4b; }
+.hr-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 18px; font-size: 12px; color: var(--muted); }
+.hr-badge { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+.hr-badge.test { border-color: #6b5a1e; color: #f2d57a; }
+.hr-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.hr-tile { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; background: #151c16; }
+.hr-tile span { display: block; font-size: 12px; color: var(--muted); }
+.hr-tile strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; }
+.hr-tile small { color: var(--muted); font-size: 12px; }
+.hr-chart-wrap { position: relative; }
+.hr-chart-wrap.loading { opacity: .5; }
+.hr-chart-wrap svg { display: block; width: 100%; overflow: visible; }
+.hr-chart-wrap svg:focus { outline: none; }
+.hr-chart-wrap svg:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 6px; }
+.hr-axis { fill: #8a9a8c; font-size: 11px; font-variant-numeric: tabular-nums; }
+.hr-grid { stroke: #263228; stroke-width: 1; }
+.hr-tooltip {
+  position: absolute; pointer-events: none; background: #0f1410; border: 1px solid #34453a;
+  border-radius: 10px; padding: 8px 11px; font-size: 12px; color: var(--muted);
+  white-space: nowrap; transform: translate(-50%, -100%); display: none; z-index: 2;
+}
+.hr-tooltip strong { display: block; color: var(--text); font-size: 15px; }
+.hr-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.hr-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.hr-legend i.empty { background: #253327; outline: 1px solid #3d4f3f; }
+.hr-lower { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+.hr-segbar { display: flex; gap: 2px; height: 28px; margin: 6px 0 10px; }
+.hr-segbar div {
+  border-radius: 4px; display: flex; align-items: center; padding-left: 8px;
+  font-size: 12px; font-weight: 600; min-width: 2px; overflow: hidden; white-space: nowrap;
+}
+.hr-reasons { list-style: none; padding: 0; margin: 6px 0 0; font-size: 13px; }
+.hr-reasons li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #222c23; }
+.hr-reasons li small { color: var(--muted); }
+.hr-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.hr-table th, .hr-table td { text-align: right; padding: 5px 8px; border-bottom: 1px solid #222c23; }
+.hr-table th:first-child, .hr-table td:first-child { text-align: left; }
+.heart-card details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 18px; }
+@media (max-width: 760px) {
+  .hr-tiles { grid-template-columns: repeat(2, 1fr); }
+  .hr-lower { grid-template-columns: 1fr; }
+}
 
 .tip {
   display: flex;
@@ -687,7 +756,11 @@ textarea::placeholder { color: #718174; }
         MoodPulse / <strong id="pageName">Overview</strong>
       </div>
 
-      <span class="demo-badge">● LIVE + LOCAL DATA</span>
+      <div>
+        <span id="account-name"></span>
+        <button class="btn btn-secondary" id="logout-button" type="button">Sign out</button>
+        <span class="demo-badge">● LIVE + LOCAL DATA</span>
+      </div>
     </header>
 
     <div class="content">
@@ -982,6 +1055,50 @@ textarea::placeholder { color: #718174; }
 
         </div>
 
+        <div class="card heart-card">
+          <div class="section-heading">
+            <div>
+              <div class="card-label">BRACELET · CHECKED BY THE ANALYTICS</div>
+              <h2>Heart rate</h2>
+            </div>
+            <div class="hr-ranges" role="group" aria-label="Time range">
+              <button type="button" data-minutes="1" aria-pressed="true">1 min</button>
+              <button type="button" data-minutes="15" aria-pressed="false">15 min</button>
+              <button type="button" data-minutes="60" aria-pressed="false">1 hour</button>
+              <button type="button" data-minutes="1440" aria-pressed="false">24 hours</button>
+            </div>
+          </div>
+          <div class="hr-meta" id="hr-meta"></div>
+          <div class="hr-tiles" id="hr-tiles"></div>
+          <div class="card-label" id="hr-chart-title">HEART RATE OVER TIME</div>
+          <div class="hr-chart-wrap" id="hr-chart-wrap">
+            <svg id="hr-chart" tabindex="0" role="img" aria-label="Heart rate over time"></svg>
+            <div class="hr-tooltip" id="hr-tooltip"></div>
+          </div>
+          <div class="hr-legend" id="hr-legend"></div>
+
+          <div class="hr-lower">
+            <div>
+              <div class="card-label">READING CHECKS</div>
+              <div class="hr-segbar" id="hr-segbar" role="img"></div>
+              <div class="hr-legend" id="hr-seg-legend"></div>
+              <p class="muted small" id="hr-late"></p>
+            </div>
+            <div>
+              <div class="card-label">WHY READINGS WERE LEFT OUT</div>
+              <ul class="hr-reasons" id="hr-reasons"></ul>
+            </div>
+          </div>
+
+          <details id="hr-details">
+            <summary>Show the numbers per minute</summary>
+            <table class="hr-table">
+              <thead><tr><th>Minute</th><th>Average</th><th>Lowest</th><th>Highest</th><th>Used</th><th>Left out</th></tr></thead>
+              <tbody id="hr-table-body"></tbody>
+            </table>
+          </details>
+        </div>
+
         <div class="card" style="margin-bottom:20px">
           <div class="section-heading">
             <div>
@@ -992,6 +1109,7 @@ textarea::placeholder { color: #718174; }
           <div id="backend-insights" class="card-description" role="status" aria-live="polite">
             Loading backend session data…
           </div>
+
         </div>
 
         <div class="grid">
@@ -1084,9 +1202,10 @@ textarea::placeholder { color: #718174; }
 // MOODPULSE FRONTEND
 // ========================================
 
-// Self-reported entries stay in this browser; camera and sensor data use Flask.
+// Journal entries are stored separately for each signed-in account in this browser.
 
-const STORAGE_KEY = "moodpulse_demo_data";
+let STORAGE_KEY = null;
+let currentUser = null;
 
 const scannerVideo = document.getElementById("scanner-video");
 const scannerCanvas = document.getElementById("scanner-canvas");
@@ -1151,9 +1270,10 @@ function loadEntries() {
   return sampleEntries();
 }
 
-let entries = loadEntries();
+let entries = [];
 
 function saveData() {
+  if (!STORAGE_KEY) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch (error) {
@@ -1412,9 +1532,426 @@ async function analyzeScannerLoop(loopId) {
   }
 }
 
+// ===================================================================
+// HEART RATE CARD (Insights page)
+// Draws the data of /api/heart-history: the readings of the bracelet,
+// checked by the analytics. Everything is drawn as SVG by hand, so no
+// chart library is needed.
+// ===================================================================
+const HR = {
+  minutes: 1,           // selected time range (starts at 1 minute)
+  data: null,           // last answer from the backend
+  colors: {             // checked against colour blindness (dataviz validator)
+    line: "#baff75",    // the heart rate line (the page's green)
+    used: "#4fa832",    // reading passed the checks
+    leftOut: "#d55590", // reading was left out
+    none: "#253327"     // no reading (track colour)
+  },
+  reasons: {
+    sensor_error: ["Sensor error", "the bracelet reported a sensor error"],
+    poor_contact: ["Poor wrist contact", "the bracelet is not touching the skin well"],
+    ble_error: ["Bluetooth error", "the bracelet reported a Bluetooth error"],
+    impossible: ["Impossible value", "below 30 or above 220 bpm"],
+    duplicate: ["Sent twice", "same reading number and bracelet time as an earlier one"],
+    stuck: ["Sensor stuck", "exactly the same value 30 times in a row or more"]
+  }
+};
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(name, attributes = {}) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attributes)) el.setAttribute(key, value);
+  return el;
+}
+function clockTime(seconds, withSeconds = false) {
+  const d = new Date(seconds * 1000);
+  const parts = [d.getHours(), d.getMinutes()].concat(withSeconds ? [d.getSeconds()] : []);
+  return parts.map(n => String(n).padStart(2, "0")).join(":");
+}
+
+async function refreshHeartCard() {
+  const wrap = document.getElementById("hr-chart-wrap");
+  const minutes = HR.minutes;
+  try {
+    const data = await requestJson(`/api/heart-history?minutes=${minutes}`);
+    if (minutes !== HR.minutes) return;  // the range changed while loading
+    if (data.status !== "success") throw new Error(data.message || "unexpected answer");
+    HR.data = data;
+    renderHeartCard();
+  } catch (error) {
+    document.getElementById("hr-meta").textContent = `Heart-rate data unavailable: ${error.message}`;
+  } finally {
+    wrap.classList.remove("loading");
+  }
+}
+
+function renderHeartCard() {
+  const data = HR.data;
+  if (!data) return;
+  const s = data.summary;
+  renderHeartMeta(data);
+  renderHeartTiles(s);
+  renderHeartLine(data);
+  renderHeartChecks(s);
+  if (document.getElementById("hr-details").open) renderHeartTable(data);
+}
+
+// ---------- 1. the line above the tiles: test data, battery, time range ----------
+function renderHeartMeta(data) {
+  const meta = document.getElementById("hr-meta");
+  const items = [];
+  const badge = (text, extra = "") => {
+    const span = document.createElement("span");
+    span.className = `hr-badge ${extra}`;
+    span.textContent = text;
+    items.push(span);
+  };
+  if (data.end === null) {
+    badge("No heart-rate readings yet. Connect your bracelet on the Face preview page.");
+  } else {
+    const range = { 1: "minute", 15: "15 minutes", 60: "hour", 1440: "24 hours" }[data.minutes];
+    badge(`Last ${range} of data, up to ${clockTime(data.end)}`);
+    if (data.summary.test_data) badge("Simulated test data", "test");
+    if (data.summary.battery !== undefined) badge(`Bracelet battery ${data.summary.battery}%`);
+  }
+  meta.replaceChildren(...items);
+}
+
+// ---------- 2. the four numbers ----------
+function renderHeartTiles(s) {
+  const tiles = [
+    ["Latest", s.enough_data ? `${Math.round(s.latest)}` : "–", "bpm"],
+    ["Average", s.enough_data ? `${s.average}` : "–", "bpm"],
+    ["Lowest – highest", s.enough_data ? `${Math.round(s.min)} – ${Math.round(s.max)}` : "–", "bpm"],
+    ["Readings used", `${s.used}`, `of ${s.used + s.removed + s.lost} expected`]
+  ];
+  document.getElementById("hr-tiles").replaceChildren(...tiles.map(([label, value, unit]) => {
+    const tile = document.createElement("div");
+    tile.className = "hr-tile";
+    const l = document.createElement("span"); l.textContent = label;
+    const v = document.createElement("strong"); v.textContent = value;
+    const u = document.createElement("small"); u.textContent = unit;
+    tile.append(l, v, u);
+    return tile;
+  }));
+}
+
+// ---------- 3. the line chart + the check strip under it ----------
+function niceTimeStep(totalSeconds) {
+  const steps = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 14400, 21600];
+  return steps.find(step => totalSeconds / step <= 7) || 21600;
+}
+
+function renderHeartLine(data) {
+  const svg = document.getElementById("hr-chart");
+  const tooltip = document.getElementById("hr-tooltip");
+  svg.replaceChildren();
+  tooltip.style.display = "none";
+  const width = Math.max(320, svg.parentElement.clientWidth);
+  const height = 270;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("height", height);
+
+  const perReading = data.minutes <= 15;
+  document.getElementById("hr-chart-title").textContent = perReading
+    ? "HEART RATE OVER TIME · EVERY READING THAT PASSED THE CHECKS"
+    : "HEART RATE OVER TIME · AVERAGE PER MINUTE, SHADED: LOWEST TO HIGHEST";
+  renderHeartLegend(perReading);
+  if (data.end === null) return;
+
+  // Points to draw: each usable reading (15 min) or each minute (1 h, 24 h)
+  const points = perReading
+    ? data.readings.filter(r => r.check === "usable").map(r => ({ t: r.t, v: r.bpm }))
+    : data.per_minute.filter(m => m.average !== null)
+        .map(m => ({ t: m.minute + 30, v: m.average, lo: m.min, hi: m.max, m }));
+
+  const m = { left: 40, right: 56, top: 26, bottom: 64 };
+  const plotBottom = height - m.bottom;
+  const x0 = data.start, x1 = data.end;
+  const x = t => m.left + (t - x0) / (x1 - x0) * (width - m.left - m.right);
+
+  // y axis: rounded to steps of 20 bpm around the data
+  const values = points.flatMap(p => [p.lo ?? p.v, p.hi ?? p.v]);
+  let lo = values.length ? Math.floor((Math.min(...values) - 5) / 20) * 20 : 40;
+  let hi = values.length ? Math.ceil((Math.max(...values) + 5) / 20) * 20 : 120;
+  lo = Math.max(0, lo);
+  if (hi - lo < 60) hi = lo + 60;
+  const yStep = hi - lo > 140 ? 40 : 20;
+  const y = v => plotBottom - (v - lo) / (hi - lo) * (plotBottom - m.top);
+
+  for (let v = lo; v <= hi; v += yStep) {
+    svg.append(svgEl("line", { x1: m.left, x2: width - m.right, y1: y(v), y2: y(v), class: "hr-grid" }));
+    const label = svgEl("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end", class: "hr-axis" });
+    label.textContent = v;
+    svg.append(label);
+  }
+  const unit = svgEl("text", { x: m.left - 8, y: 10, "text-anchor": "end", class: "hr-axis" });
+  unit.textContent = "bpm";
+  svg.append(unit);
+
+  // time labels on round minutes / hours
+  const step = niceTimeStep(x1 - x0);
+  const offset = new Date().getTimezoneOffset() * 60;   // round in local time
+  for (let t = Math.ceil((x0 - offset) / step) * step + offset; t <= x1; t += step) {
+    svg.append(svgEl("line", { x1: x(t), x2: x(t), y1: plotBottom, y2: plotBottom + 4, class: "hr-grid" }));
+    const label = svgEl("text", { x: x(t), y: plotBottom + 17, "text-anchor": "middle", class: "hr-axis" });
+    label.textContent = clockTime(t, step < 60);   // show seconds on the 1-minute view
+    svg.append(label);
+  }
+
+  // Split the line where there is no data, so gaps stay visible
+  const maxGap = perReading ? 5 : 90;
+  const segments = [];
+  points.forEach((p, i) => {
+    if (i === 0 || p.t - points[i - 1].t > maxGap) segments.push([]);
+    segments[segments.length - 1].push(p);
+  });
+  for (const seg of segments) {
+    if (!perReading) {   // lowest-to-highest band, a light wash behind the line
+      const band = seg.map(p => `${x(p.t)},${y(p.hi)}`)
+        .concat(seg.slice().reverse().map(p => `${x(p.t)},${y(p.lo)}`));
+      svg.append(svgEl("polygon", { points: band.join(" "), fill: HR.colors.line, opacity: 0.12 }));
+    }
+    if (seg.length === 1) {
+      svg.append(svgEl("circle", { cx: x(seg[0].t), cy: y(seg[0].v), r: 2.5, fill: HR.colors.line }));
+    } else {
+      svg.append(svgEl("polyline", {
+        points: seg.map(p => `${x(p.t)},${y(p.v)}`).join(" "), fill: "none",
+        stroke: HR.colors.line, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"
+      }));
+    }
+  }
+
+  // The latest value: a dot with its number at the end of the line
+  if (points.length) {
+    const last = points[points.length - 1];
+    svg.append(svgEl("circle", { cx: x(last.t), cy: y(last.v), r: 5, fill: HR.colors.line,
+                                 stroke: "#171e18", "stroke-width": 2 }));
+    const label = svgEl("text", { x: x(last.t) + 9, y: y(last.v) + 4, fill: "#f1f7f0", "font-size": 12, "font-weight": 600 });
+    label.textContent = `${Math.round(last.v)}`;
+    svg.append(label);
+  }
+
+  // Check strip: one row under the chart that shows, for each moment, if the
+  // reading was used (green), left out (pink, taller) or missing (empty)
+  const stripY = plotBottom + 32;
+  const stripLabel = svgEl("text", { x: m.left - 8, y: stripY + 8, "text-anchor": "end", class: "hr-axis" });
+  stripLabel.textContent = "checks";
+  svg.append(stripLabel, svgEl("rect", { x: m.left, y: stripY, width: width - m.left - m.right, height: 10,
+                                         rx: 2, fill: HR.colors.none }));
+  const slot = perReading ? 1 : 60;
+  const slotWidth = Math.max(1, x(x0 + slot) - x(x0));
+  const marks = perReading
+    ? data.readings.map(r => ({ t: r.t, bad: r.check !== "usable", good: r.check === "usable" }))
+    : data.per_minute.map(mm => ({ t: mm.minute, bad: mm.removed > 0, good: mm.used > 0 }));
+  // Used readings next to each other are drawn as one block
+  const runs = [];
+  for (const mark of marks.filter(mk => mk.good).sort((a, b) => a.t - b.t)) {
+    const run = runs[runs.length - 1];
+    if (run && mark.t - run.end <= slot * 1.5) run.end = mark.t;
+    else runs.push({ start: mark.t, end: mark.t });
+  }
+  for (const run of runs) {
+    const left = Math.max(m.left, x(run.start));
+    const right = Math.min(width - m.right, x(run.end) + slotWidth);   // never past the chart
+    svg.append(svgEl("rect", { x: left, y: stripY + 1, width: Math.max(1, right - left),
+                               height: 8, fill: HR.colors.used }));
+  }
+  for (const mark of marks) {   // drawn last, so they are never hidden
+    const left = Math.max(m.left, x(mark.t));
+    if (mark.bad) svg.append(svgEl("rect", { x: Math.min(left, width - m.right - 3), y: stripY - 3,
+                                             width: Math.max(3, Math.min(slotWidth, width - m.right - left)), height: 16,
+                                             rx: 1, fill: HR.colors.leftOut }));
+  }
+
+  // Hover / keyboard: a vertical line that snaps to the nearest reading or minute
+  const targets = perReading
+    ? data.readings.map(r => ({ t: r.t, r }))
+    : data.per_minute.map(mm => ({ t: mm.minute + 30, mm }));
+  const cross = svgEl("line", { y1: m.top, y2: plotBottom, stroke: "#8a9a8c", "stroke-width": 1, visibility: "hidden" });
+  const dot = svgEl("circle", { r: 5, fill: HR.colors.line, stroke: "#171e18", "stroke-width": 2, visibility: "hidden" });
+  const hit = svgEl("rect", { x: m.left, y: 0, width: width - m.left - m.right, height: stripY + 16, fill: "transparent" });
+  svg.append(cross, dot, hit);
+
+  let current = targets.length - 1;
+  const show = index => {
+    if (!targets.length) return;
+    current = Math.max(0, Math.min(targets.length - 1, index));
+    const target = targets[current];
+    const px = x(target.t);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    const lines = [];
+    let value = null;
+    if (target.r) {
+      const ok = target.r.check === "usable";
+      if (ok) value = target.r.bpm;
+      lines.push([ok ? `${Math.round(target.r.bpm)} bpm` : `${target.r.bpm ?? "?"} bpm — left out`, true]);
+      lines.push([ok ? "Used" : (HR.reasons[target.r.check] || [target.r.check])[0], false]);
+      lines.push([clockTime(target.t, true), false]);
+    } else {
+      const mm = target.mm;
+      value = mm.average;
+      lines.push([mm.average === null ? "No usable readings" : `${mm.average} bpm average`, true]);
+      if (mm.average !== null) lines.push([`lowest ${mm.min}, highest ${mm.max}`, false]);
+      lines.push([`${mm.used} used, ${mm.removed} left out`, false]);
+      lines.push([`${clockTime(mm.minute)}–${clockTime(mm.minute + 60)}`, false]);
+    }
+    if (value !== null) {
+      dot.setAttribute("cx", px); dot.setAttribute("cy", y(value)); dot.setAttribute("visibility", "visible");
+    } else {
+      dot.setAttribute("visibility", "hidden");
+    }
+    tooltip.replaceChildren(...lines.map(([text, strong]) => {
+      const el = document.createElement(strong ? "strong" : "div");
+      el.textContent = text;
+      return el;
+    }));
+    const scale = svg.clientWidth / width;
+    tooltip.style.left = `${Math.min(Math.max(px * scale, 90), svg.clientWidth - 90)}px`;
+    tooltip.style.top = `${(value !== null ? y(value) : m.top + 40) * scale - 10}px`;
+    tooltip.style.display = "block";
+  };
+  const hide = () => {
+    cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden");
+    tooltip.style.display = "none";
+  };
+  hit.addEventListener("pointermove", event => {
+    const rect = svg.getBoundingClientRect();
+    const t = x0 + ((event.clientX - rect.left) * width / rect.width - m.left) / (width - m.left - m.right) * (x1 - x0);
+    let best = 0;
+    targets.forEach((target, i) => { if (Math.abs(target.t - t) < Math.abs(targets[best].t - t)) best = i; });
+    show(best);
+  });
+  hit.addEventListener("pointerleave", hide);
+  svg.onfocus = () => show(current);
+  svg.onblur = hide;
+  svg.onkeydown = event => {
+    if (event.key === "ArrowLeft") { show(current - 1); event.preventDefault(); }
+    if (event.key === "ArrowRight") { show(current + 1); event.preventDefault(); }
+  };
+  svg.setAttribute("aria-label",
+    `Heart rate from ${clockTime(x0)} to ${clockTime(x1)}. Use the left and right arrow keys to read the values.`);
+}
+
+function renderHeartLegend(perReading) {
+  const legend = document.getElementById("hr-legend");
+  const item = (color, text, cls = "") => {
+    const span = document.createElement("span");
+    const key = document.createElement("i");
+    if (cls) key.className = cls; else key.style.background = color;
+    span.append(key, document.createTextNode(text));
+    return span;
+  };
+  legend.replaceChildren(
+    item(HR.colors.used, perReading ? "Checks: reading used" : "Checks: minute with readings used"),
+    item(HR.colors.leftOut, perReading ? "reading left out" : "minute with readings left out"),
+    item(null, "no reading", "empty"));
+}
+
+// ---------- 4. how many readings were used / left out / never arrived ----------
+function renderHeartChecks(s) {
+  const parts = [
+    ["Used", s.used, HR.colors.used, "#0b0b0b"],
+    ["Left out", s.removed, HR.colors.leftOut, "#ffffff"],
+    ["Never arrived", s.lost, "#6b7a6d", "#ffffff"]
+  ];
+  const total = parts.reduce((sum, p) => sum + p[1], 0);
+  const bar = document.getElementById("hr-segbar");
+  const legend = document.getElementById("hr-seg-legend");
+  bar.replaceChildren(); legend.replaceChildren();
+  if (total === 0) {
+    bar.setAttribute("aria-label", "No readings");
+    document.getElementById("hr-late").textContent = "";
+    document.getElementById("hr-reasons").replaceChildren();
+    return;
+  }
+  const described = [];
+  for (const [name, count, color, ink] of parts) {
+    const share = Math.round(count / total * 100);
+    described.push(`${name}: ${count} (${share}%)`);
+    if (count > 0) {
+      const block = document.createElement("div");
+      block.style.flex = `${count} 0 0`;
+      block.style.background = color;
+      block.style.color = ink;
+      block.title = `${name}: ${count} readings (${share}%)`;
+      if (count / total > 0.12) block.textContent = `${share}%`;
+      bar.append(block);
+    }
+    const span = document.createElement("span");
+    const key = document.createElement("i");
+    key.style.background = color;
+    span.append(key, document.createTextNode(`${name} ${count}`));
+    legend.append(span);
+  }
+  bar.setAttribute("aria-label", described.join(", "));
+
+  document.getElementById("hr-late").textContent = s.late > 0
+    ? `${s.late} readings were marked as buffered or arrived more than 5 seconds late. Their measurement times are estimated from bracelet uptime.`
+    : "";
+
+  const list = document.getElementById("hr-reasons");
+  const rows = Object.entries(HR.reasons).map(([key, [title, rule]]) => {
+    const li = document.createElement("li");
+    const text = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const small = document.createElement("small");
+    small.textContent = ` — ${rule}`;
+    text.append(strong, small);
+    const count = document.createElement("span");
+    count.textContent = s.removed_why[key] || 0;
+    li.append(text, count);
+    return li;
+  });
+  const lost = document.createElement("li");
+  lost.innerHTML = "<div><strong>Never arrived</strong><small> — reading numbers missing in the sequence</small></div>";
+  const lostCount = document.createElement("span");
+  lostCount.textContent = s.lost;
+  lost.append(lostCount);
+  list.replaceChildren(...rows, lost);
+}
+
+// ---------- 5. the numbers as a table (only built when opened) ----------
+function renderHeartTable(data) {
+  const body = document.getElementById("hr-table-body");
+  const cell = text => { const td = document.createElement("td"); td.textContent = text; return td; };
+  body.replaceChildren(...data.per_minute.slice().reverse().map(mm => {
+    const tr = document.createElement("tr");
+    tr.append(cell(clockTime(mm.minute)), cell(mm.average ?? "–"), cell(mm.min ?? "–"),
+              cell(mm.max ?? "–"), cell(mm.used), cell(mm.removed));
+    return tr;
+  }));
+}
+
+document.querySelectorAll(".hr-ranges button").forEach(button => {
+  button.addEventListener("click", () => {
+    HR.minutes = Number(button.dataset.minutes);
+    document.querySelectorAll(".hr-ranges button").forEach(b =>
+      b.setAttribute("aria-pressed", String(b === button)));
+    document.getElementById("hr-chart-wrap").classList.add("loading");
+    void refreshHeartCard();
+  });
+});
+document.getElementById("hr-details").addEventListener("toggle", () => {
+  if (HR.data && document.getElementById("hr-details").open) renderHeartTable(HR.data);
+});
+// Redraw when the chart gets a new width (window resized, or the Insights
+// page was opened: while it is hidden the chart has no width).
+let hrLastWidth = 0;
+new ResizeObserver(entries => {
+  const width = Math.round(entries[0].contentRect.width);
+  if (width > 0 && width !== hrLastWidth) {
+    hrLastWidth = width;
+    renderHeartLine(HR.data || { end: null, minutes: HR.minutes });
+    if (HR.data) renderHeartCard();
+  }
+}).observe(document.getElementById("hr-chart-wrap"));
+
 async function refreshBackendInsights() {
   const container = document.getElementById("backend-insights");
   try {
+    void refreshHeartCard();   // the heart-rate card has its own data
     const [summary, sensorData] = await Promise.all([
       requestJson("/emotion-summary"),
       requestJson("/api/sensors")
@@ -1447,11 +1984,9 @@ async function refreshBackendInsights() {
       }
     }
 
+    // The heart rate is shown in its own card (see refreshHeartCard)
     const readings = sensorData.readings || [];
-    const heartRates = readings.filter(reading => reading.type === "heart_rate");
     const conductance = readings.filter(reading => reading.type === "skin_conductance");
-    addRow("Bracelet readings", `${readings.length} total`);
-    if (heartRates.length) addRow("Latest heart rate", `${heartRates[heartRates.length - 1].value} bpm`);
     if (conductance.length) {
       addRow("Latest skin conductance", `${conductance[conductance.length - 1].value} µS`);
     }
@@ -1660,9 +2195,32 @@ function showToast(message) {
 }
 
 // INITIAL LOAD
-renderEverything();
-void refreshBackendInsights();
-window.setInterval(refreshBackendInsights, 5000);
+async function initializeDashboard() {
+  try {
+    const data = await requestJson("/api/auth/me");
+    currentUser = data.user;
+    STORAGE_KEY = `moodpulse_user_data_${currentUser.id}`;
+    entries = loadEntries();
+    document.getElementById("account-name").textContent = currentUser.name;
+    renderEverything();
+    await refreshBackendInsights();
+    window.setInterval(refreshBackendInsights, 5000);
+  } catch (error) {
+    window.location.href = "/login";
+  }
+}
+
+document.getElementById("logout-button").addEventListener("click", async () => {
+  try {
+    await requestJson("/api/auth/logout", { method: "POST" });
+  } catch (error) {
+    showToast(`Could not sign out: ${error.message}`);
+    return;
+  }
+  window.location.href = "/login";
+});
+
+void initializeDashboard();
 window.addEventListener("pagehide", () => {
   if (scannerRunning) {
     scannerLoopId++;
