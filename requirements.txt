@@ -1,0 +1,8 @@
+Flask
+bcrypt
+azure-identity
+azure-keyvault-secrets
+psycopg[binary]
+numpy
+opencv-python
+deepface
