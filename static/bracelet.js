@@ -30,7 +30,6 @@ const statusElement = document.getElementById("bracelet-status");
 
 let braceletDevice = null;
 let txCharacteristic = null;
-let pendingBytes = new Uint8Array(0);
 let pendingReadings = [];
 let preStartBuffer = []; // Holds bulk packets flushed immediately on BLE connect
 let flushTimer = null;
@@ -61,7 +60,6 @@ function resetConnection() {
 
   txCharacteristic = null;
   readingActive = false;
-  pendingBytes = new Uint8Array(0);
   preStartBuffer = [];
   updateButtons();
 }
@@ -112,7 +110,6 @@ async function connectBracelet() {
     const service = await server.getPrimaryService(UART_SERVICE);
 
     txCharacteristic = await service.getCharacteristic(UART_TX);
-    pendingBytes = new Uint8Array(0);
     preStartBuffer = [];
 
     // Listen before enabling the backend so packets arriving during startup are buffered.
@@ -261,44 +258,36 @@ function decodePacket(packet) {
 
 function receiveReading(event) {
   const value = event.target.value;
+  if (value.byteLength !== PACKET_SIZE) {
+    setBraceletStatus(
+      `Bracelet packet rejected: expected ${PACKET_SIZE} bytes, received ${value.byteLength}.`
+    );
+    return;
+  }
 
-  const incoming = new Uint8Array(
-    value.buffer,
-    value.byteOffset,
-    value.byteLength
-  );
+  try {
+    const packet = new Uint8Array(
+      value.buffer,
+      value.byteOffset,
+      value.byteLength
+    );
+    const reading = decodePacket(packet);
+    console.log("Bracelet reading:", reading);
 
-  const combined = new Uint8Array(
-    pendingBytes.length + incoming.length
-  );
-
-  combined.set(pendingBytes);
-  combined.set(incoming, pendingBytes.length);
-  pendingBytes = combined;
-
-  while (pendingBytes.length >= PACKET_SIZE) {
-    const packet = pendingBytes.slice(0, PACKET_SIZE);
-    pendingBytes = pendingBytes.slice(PACKET_SIZE);
-
-    try {
-      const reading = decodePacket(packet);
-      console.log("Bracelet reading:", reading);
-
-      if (!readingActive) {
-        // Hold up to 256 packets flushed while connecting so they aren't lost
-        preStartBuffer.push(reading);
-        if (preStartBuffer.length > 256) {
-          preStartBuffer.shift();
-        }
-        setBraceletStatus(
-          `Connecting bracelet; capturing ${preStartBuffer.length} initial reading(s)...`
-        );
-      } else {
-        sendReading(reading);
+    if (!readingActive) {
+      // Hold up to 256 packets flushed while connecting so they aren't lost
+      preStartBuffer.push(reading);
+      if (preStartBuffer.length > 256) {
+        preStartBuffer.shift();
       }
-    } catch (error) {
-      setBraceletStatus(`Bracelet packet rejected: ${error.message}`);
+      setBraceletStatus(
+        `Connecting bracelet; capturing ${preStartBuffer.length} initial reading(s)...`
+      );
+    } else {
+      sendReading(reading);
     }
+  } catch (error) {
+    setBraceletStatus(`Bracelet packet rejected: ${error.message}`);
   }
 }
 
