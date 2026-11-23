@@ -1159,9 +1159,6 @@ textarea::placeholder { color: #718174; }
               </button>
             </div>
 
-            <button class="btn btn-secondary" onclick="resetDemo()">
-              Reset to sample data
-            </button>
 
           </div>
 
@@ -1202,9 +1199,8 @@ textarea::placeholder { color: #718174; }
 // MOODPULSE FRONTEND
 // ========================================
 
-// Journal entries are stored separately for each signed-in account in this browser.
+// Journal entries are loaded and saved through the account-specific database API.
 
-let STORAGE_KEY = null;
 let currentUser = null;
 
 const scannerVideo = document.getElementById("scanner-video");
@@ -1217,70 +1213,16 @@ let scannerRunning = false;
 let scannerStarting = false;
 let scannerLoopId = 0;
 
-// SAMPLE DATA
-function daysAgo(number) {
-  const date = new Date();
-  date.setDate(date.getDate() - number);
-  return date.toISOString();
-}
-
-function sampleEntries() {
-  return [
-    {
-      note: "Made progress on something important today.",
-      date: daysAgo(0),
-      demo: true
-    },
-    {
-      note: "A little tired, but I had a productive day.",
-      date: daysAgo(1),
-      demo: true
-    },
-    {
-      note: "Had a good day with friends.",
-      date: daysAgo(2),
-      demo: true
-    },
-    {
-      note: "Today was challenging. I need some rest.",
-      date: daysAgo(4),
-      demo: true
-    },
-    {
-      note: "A small win made me feel better.",
-      date: daysAgo(6),
-      demo: true
-    }
-  ];
-}
-
 // LOAD SAVED ENTRIES
-function loadEntries() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-
-    if (saved !== null) {
-      const result = JSON.parse(saved);
-      if (Array.isArray(result)) return result;
-    }
-  } catch (error) {
-    console.warn("Could not load saved entries.", error);
+async function loadEntries() {
+  const data = await requestJson("/api/journal");
+  if (!Array.isArray(data.entries)) {
+    throw new Error("The server returned an invalid journal response.");
   }
-
-  return sampleEntries();
+  return data.entries;
 }
 
 let entries = [];
-
-function saveData() {
-  if (!STORAGE_KEY) return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch (error) {
-    console.warn("Could not save entries.", error);
-    showToast("Browser storage is unavailable.");
-  }
-}
 
 // PAGE NAVIGATION
 function showPage(pageName, button) {
@@ -1325,34 +1267,44 @@ function goTo(pageName) {
 }
 
 // CREATE AN ENTRY
-function addEntry(note) {
-  entries.unshift({
-    note: note,
-    date: new Date().toISOString(),
-    demo: false
-  });
-
-  entries = entries.slice(0, 300);
-
-  saveData();
-  renderEverything();
-  showToast("Your entry has been saved!");
+async function addEntry(note) {
+  try {
+    const data = await requestJson("/api/journal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: note })
+    });
+    entries.unshift(data.entry);
+    entries = entries.slice(0, 300);
+    renderEverything();
+    showToast("Your entry has been saved!");
+    return true;
+  } catch (error) {
+    showToast(error.message || "Could not save journal entry.");
+    return false;
+  }
 }
 
-// DELETE ONE JOURNAL ENTRY (works for both saved and sample entries)
-function deleteEntry(entryToDelete) {
+// DELETE ONE JOURNAL ENTRY
+async function deleteEntry(entryToDelete) {
   if (!confirm("Delete this journal entry? This cannot be undone.")) return;
+  if (!entryToDelete.id) {
+    showToast("This entry cannot be deleted.");
+    return;
+  }
 
-  // Each displayed card keeps a reference to its actual entry, so two
-  // entries with the same text or date can still be deleted individually.
-  entries = entries.filter(entry => entry !== entryToDelete);
-  saveData();
-  renderEverything();
-  showToast("Journal entry deleted.");
+  try {
+    await requestJson(`/api/journal/${entryToDelete.id}`, { method: "DELETE" });
+    entries = entries.filter(entry => entry !== entryToDelete);
+    renderEverything();
+    showToast("Journal entry deleted.");
+  } catch (error) {
+    showToast(error.message || "Could not delete journal entry.");
+  }
 }
 
 // SAVE QUICK CHECK-IN
-function saveCheckin() {
+async function saveCheckin() {
   const status = document.getElementById("quickStatus");
   const note = document.getElementById("quickNote").value.trim();
 
@@ -1361,13 +1313,16 @@ function saveCheckin() {
     return;
   }
 
-  addEntry(note);
-  document.getElementById("quickNote").value = "";
-  status.textContent = "Your reflection has been saved ✓";
+  if (await addEntry(note)) {
+    document.getElementById("quickNote").value = "";
+    status.textContent = "Your reflection has been saved ✓";
+  } else {
+    status.textContent = "Could not save your reflection.";
+  }
 }
 
 // SAVE JOURNAL ENTRY
-function saveJournal() {
+async function saveJournal() {
   const note = document.getElementById("journalText").value.trim();
   const status = document.getElementById("journalStatus");
 
@@ -1376,10 +1331,12 @@ function saveJournal() {
     return;
   }
 
-  addEntry(note);
-
-  document.getElementById("journalText").value = "";
-  status.textContent = "Your reflection has been saved ✓";
+  if (await addEntry(note)) {
+    document.getElementById("journalText").value = "";
+    status.textContent = "Your reflection has been saved ✓";
+  } else {
+    status.textContent = "Could not save your reflection.";
+  }
 }
 
 async function requestJson(url, options) {
@@ -2029,13 +1986,6 @@ function renderEntryList(elementId, list) {
 
     header.append(name);
 
-    if (entry.demo) {
-      const badge = document.createElement("span");
-      badge.className = "sample-badge";
-      badge.textContent = "SAMPLE";
-      header.append(badge);
-    }
-
     const date = document.createElement("span");
     date.className = "entry-date";
     date.textContent = new Date(entry.date).toLocaleDateString();
@@ -2166,20 +2116,6 @@ function renderEverything() {
   document.getElementById("insightsTip").textContent = suggestion;
 }
 
-// RESET SAMPLE DATA
-function resetDemo() {
-  if (!confirm("Reset all entries to the sample demonstration data?")) {
-    return;
-  }
-
-  entries = sampleEntries();
-  saveData();
-  renderEverything();
-  goTo("overview");
-
-  showToast("Sample data restored");
-}
-
 // NOTIFICATION
 function showToast(message) {
   const toast = document.getElementById("toast");
@@ -2196,18 +2132,27 @@ function showToast(message) {
 
 // INITIAL LOAD
 async function initializeDashboard() {
+  let data;
   try {
-    const data = await requestJson("/api/auth/me");
-    currentUser = data.user;
-    STORAGE_KEY = `moodpulse_user_data_${currentUser.id}`;
-    entries = loadEntries();
-    document.getElementById("account-name").textContent = currentUser.name;
-    renderEverything();
-    await refreshBackendInsights();
-    window.setInterval(refreshBackendInsights, 5000);
+    data = await requestJson("/api/auth/me");
   } catch (error) {
     window.location.href = "/login";
+    return;
   }
+
+  currentUser = data.user;
+  try {
+    entries = await loadEntries();
+  } catch (error) {
+    entries = [];
+    console.error("Could not load database journal entries.", error);
+    showToast(`Could not load journal entries: ${error.message}`);
+  }
+
+  document.getElementById("account-name").textContent = currentUser.name;
+  renderEverything();
+  await refreshBackendInsights();
+  window.setInterval(refreshBackendInsights, 5000);
 }
 
 document.getElementById("logout-button").addEventListener("click", async () => {
