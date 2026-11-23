@@ -1,8 +1,10 @@
 Flask
-bcrypt
+argon2-cffi
 azure-identity
 azure-keyvault-secrets
 psycopg[binary]
 numpy
 opencv-python
 deepface
+tf-keras
+gunicorn
