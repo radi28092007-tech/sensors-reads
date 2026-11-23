@@ -1,43 +1,3 @@
-"""
-MoodPulse - database (PostgreSQL)
-
-Stores the bracelet readings and the analytics results in PostgreSQL, so they
-are kept when the server restarts.
-
-How it connects
----------------
-PostgreSQL is a separate program (a database server). This file connects to it
-with the psycopg library, using one address called DATABASE_URL, for example:
-
-    postgresql://postgres:YOUR_PASSWORD@localhost:5432/moodpulse
-                 |        |             |         |    |
-                 user     password      computer  port database name
-
-When AZURE_KEY_VAULT_URL is configured, the database password is retrieved
-from Azure Key Vault and combined with the non-secret connection settings.
-Otherwise, DATABASE_URL can be supplied through the process environment or a
-local .env file.
-
-The tables
-----------
-  users              account details and password hashes
-  devices            devices registered to users
-  journal_entries    journal entries owned by users
-  measurements       sensor measurements associated with users and devices
-  readings           every bracelet reading exactly as it arrived (raw data,
-                     never changed). Bad readings are stored too, so the
-                     analytics can count what it removes.
-
-The tables are created automatically when the server starts.
-
-Without a database connection string
---------------------
-If no database connection is configured, the readings are kept in memory
-instead (the way the backend worked before the database was added). Everything
-still works, but the readings are gone when the server stops. /health shows
-which storage is used.
-"""
-
 import os
 import threading
 import time
@@ -64,12 +24,18 @@ CREATE TABLE IF NOT EXISTS public.users (
     gender VARCHAR(30),
     height_cm DOUBLE PRECISION,
     weight_kg DOUBLE PRECISION,
+    data_processing_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    data_processing_consent_at TIMESTAMPTZ,
+    data_processing_consent_version VARCHAR(32),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS age SMALLINT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS gender VARCHAR(30);
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS height_cm DOUBLE PRECISION;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS data_processing_consent BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS data_processing_consent_at TIMESTAMPTZ;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS data_processing_consent_version VARCHAR(32);
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON public.users (lower(email));
 
 CREATE TABLE IF NOT EXISTS public.devices (
@@ -161,6 +127,9 @@ def _read_env_file():
 def key_vault_secret(secret_name=None):
     """Return a cached Key Vault secret using the configured Azure identity."""
     _read_env_file()
+    direct_secret = os.environ.get("FLASK_SECRET_KEY")
+    if direct_secret:
+        return direct_secret
     if secret_name is None:
         secret_name = os.environ.get(
             "FLASK_SECRET_KEY_SECRET_NAME",
@@ -193,6 +162,26 @@ def key_vault_secret(secret_name=None):
 def database_url():
     """Build the database URL using the Key Vault password, or use DATABASE_URL."""
     _read_env_file()
+    direct_password = os.environ.get("DATABASE_PASSWORD")
+    if direct_password:
+        host = os.environ.get("DATABASE_HOST", "localhost")
+        port = os.environ.get("DATABASE_PORT", "5432")
+        name = os.environ.get("DATABASE_NAME", "moodpulse")
+        user = os.environ.get("DATABASE_USER", "moodpulse_app")
+        if not all((host, port, name, user)):
+            raise RuntimeError(
+                "DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, and DATABASE_USER "
+                "must all be set when using DATABASE_PASSWORD."
+            )
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return "postgresql://{}:{}@{}:{}/{}".format(
+            quote(user, safe=""),
+            quote(direct_password, safe=""),
+            host,
+            quote(port, safe=""),
+            quote(name, safe=""),
+        )
     vault_url = os.environ.get("AZURE_KEY_VAULT_URL")
     if vault_url:
         secret_name = os.environ.get(
@@ -221,16 +210,18 @@ def database_url():
     return os.environ.get("DATABASE_URL") or None
 
 
-def create_user(name, email, password_hash, age, gender, height_cm, weight_kg):
+def create_user(name, email, password_hash, age, gender, height_cm, weight_kg, consent_version):
     """Create an account, returning None when its email is already registered."""
     with connect() as db:
         return db.execute(
             "INSERT INTO public.users"
-            " (name, email, password_hash, age, gender, height_cm, weight_kg)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            " (name, email, password_hash, age, gender, height_cm, weight_kg,"
+            "  data_processing_consent, data_processing_consent_at, data_processing_consent_version)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP, %s)"
             " ON CONFLICT DO NOTHING"
-            " RETURNING id, name, email, age, gender, height_cm, weight_kg",
-            (name, email, password_hash, age, gender, height_cm, weight_kg),
+            " RETURNING id, name, email, age, gender, height_cm, weight_kg,"
+            " data_processing_consent, data_processing_consent_at, data_processing_consent_version",
+            (name, email, password_hash, age, gender, height_cm, weight_kg, consent_version),
         ).fetchone()
 
 
@@ -238,20 +229,114 @@ def user_by_email(email):
     """Find an account by case-insensitive email address."""
     with connect() as db:
         return db.execute(
-            "SELECT id, name, email, password_hash, age, gender, height_cm, weight_kg"
+            "SELECT id, name, email, password_hash, age, gender, height_cm, weight_kg,"
+            " data_processing_consent, data_processing_consent_at, data_processing_consent_version"
             " FROM public.users WHERE lower(email) = %s",
             (email.lower(),),
         ).fetchone()
+
+
+def update_password_hash(user_id, password_hash):
+    """Update an account's Argon2 hash after successful verification."""
+    with connect() as db:
+        db.execute(
+            "UPDATE public.users SET password_hash = %s WHERE id = %s",
+            (password_hash, user_id),
+        )
 
 
 def user_by_id(user_id):
     """Return public account fields, excluding the password hash."""
     with connect() as db:
         return db.execute(
-            "SELECT id, name, email, age, gender, height_cm, weight_kg"
+            "SELECT id, name, email, age, gender, height_cm, weight_kg,"
+            " data_processing_consent, data_processing_consent_at, data_processing_consent_version"
             " FROM public.users WHERE id = %s",
             (user_id,),
         ).fetchone()
+
+
+def journal_entries(user_id, limit=300):
+    """Return one account's journal entries, newest first."""
+    if storage() == "memory":
+        with _memory_journal_lock:
+            rows = [
+                dict(row) for row in _memory_journal_entries
+                if row["user_id"] == user_id
+            ]
+        rows.sort(key=lambda row: (row["created_at"], row["id"]), reverse=True)
+        return rows[:limit]
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id, content, created_at, updated_at"
+            " FROM public.journal_entries WHERE user_id = %s"
+            " ORDER BY created_at DESC, id DESC LIMIT %s",
+            (user_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "content": row["content"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+        for row in rows
+    ]
+
+
+def create_journal_entry(user_id, content):
+    """Create a journal entry for one account."""
+    if storage() == "memory":
+        with _memory_journal_lock:
+            global _memory_journal_next_id
+            row = {
+                "id": _memory_journal_next_id,
+                "user_id": user_id,
+                "content": content,
+                "created_at": time.time(),
+                "updated_at": time.time(),
+            }
+            _memory_journal_next_id += 1
+            _memory_journal_entries.append(row)
+        return {
+            "id": row["id"],
+            "content": row["content"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+    with connect() as db:
+        row = db.execute(
+            "INSERT INTO public.journal_entries (user_id, content)"
+            " VALUES (%s, %s)"
+            " RETURNING id, content, created_at, updated_at",
+            (user_id, content),
+        ).fetchone()
+    return {
+        "id": row["id"],
+        "content": row["content"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+def delete_journal_entry(user_id, entry_id):
+    """Delete an entry only when it belongs to the account."""
+    if storage() == "memory":
+        with _memory_journal_lock:
+            before = len(_memory_journal_entries)
+            _memory_journal_entries[:] = [
+                row for row in _memory_journal_entries
+                if not (row["user_id"] == user_id and row["id"] == entry_id)
+            ]
+        return len(_memory_journal_entries) != before
+    with connect() as db:
+        row = db.execute(
+            "DELETE FROM public.journal_entries"
+            " WHERE id = %s AND user_id = %s"
+            " RETURNING id",
+            (entry_id, user_id),
+        ).fetchone()
+    return row is not None
 
 
 def storage():
@@ -300,6 +385,9 @@ def _as_dict(row):
 _memory_lock = threading.Lock()
 _memory_readings = []        # the readings, in the order they were stored
 _memory_next_id = 1
+_memory_journal_lock = threading.Lock()
+_memory_journal_entries = []
+_memory_journal_next_id = 1
 
 
 def _memory_select(keep, limit=None):
