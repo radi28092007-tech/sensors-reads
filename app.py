@@ -9,7 +9,9 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
-import bcrypt
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+from argon2.low_level import Type
 from advice import bp as advice_bp
 import database
 import cv2
@@ -48,10 +50,16 @@ state_lock = threading.Lock()
 model_lock = threading.Lock()
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ALLOWED_GENDERS = {"male", "female", "rather-not-say"}
-DUMMY_PASSWORD_HASH = bcrypt.hashpw(
-    b"moodpulse-dummy-password",
-    bcrypt.gensalt(rounds=12),
+CONSENT_NOTICE_VERSION = "2026-11-24"
+password_hasher = PasswordHasher(
+    time_cost=3,
+    memory_cost=65536,
+    parallelism=4,
+    hash_len=32,
+    salt_len=16,
+    type=Type.ID,
 )
+DUMMY_PASSWORD_HASH = password_hasher.hash("moodpulse-dummy-password")
 PUBLIC_ENDPOINTS = {
     "login",
     "health",
@@ -63,7 +71,6 @@ PUBLIC_ENDPOINTS = {
 
 NO_FACE = "No Face Detected"
 MULTI = "More than one person"
-
 
 def _user_state(user_id):
     return user_states.setdefault(user_id, {
@@ -156,6 +163,7 @@ def login():
 
 
 def _account_payload(user):
+    consent_at = user.get("data_processing_consent_at")
     return {
         "id": user["id"],
         "name": user["name"],
@@ -164,6 +172,11 @@ def _account_payload(user):
         "gender": user.get("gender"),
         "height_cm": user.get("height_cm"),
         "weight_kg": user.get("weight_kg"),
+        "data_processing_consent": {
+            "given": user.get("data_processing_consent", False),
+            "accepted_at": consent_at.isoformat() if consent_at else None,
+            "notice_version": user.get("data_processing_consent_version"),
+        },
     }
 
 
@@ -176,6 +189,11 @@ def auth_signup():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"status": "error", "message": "JSON object expected."}), 400
+    if data.get("data_processing_consent") is not True:
+        return jsonify({
+            "status": "error",
+            "message": "Consent to the data processing described above is required to create an account.",
+        }), 400
 
     name = data.get("username")
     email = data.get("email")
@@ -197,9 +215,12 @@ def auth_signup():
         return jsonify({"status": "error", "message": "Enter a valid email address."}), 400
     if not isinstance(password, str) or len(password) < 8:
         return jsonify({"status": "error", "message": "Password must be at least 8 characters."}), 400
-    password_bytes = password.encode("utf-8")
-    if len(password_bytes) > 72:
-        return jsonify({"status": "error", "message": "Password must be at most 72 UTF-8 bytes for bcrypt."}), 400
+    try:
+        password_bytes = password.encode("utf-8")
+    except UnicodeEncodeError:
+        return jsonify({"status": "error", "message": "Password contains unsupported characters."}), 400
+    if len(password_bytes) > 1024:
+        return jsonify({"status": "error", "message": "Password must be at most 1024 UTF-8 bytes."}), 400
     if confirmation is not None and confirmation != password:
         return jsonify({"status": "error", "message": "Passwords do not match."}), 400
     if age is None or not 1 <= age <= 120:
@@ -224,10 +245,11 @@ def auth_signup():
             }), 400
         profile[field] = number
 
-    password_hash = bcrypt.hashpw(
-        password_bytes,
-        bcrypt.gensalt(rounds=12),
-    ).decode("ascii")
+    try:
+        password_hash = password_hasher.hash(password)
+    except Exception:
+        app.logger.exception("Password hashing failed.")
+        return jsonify({"status": "error", "message": "Account creation is unavailable. Try again later."}), 503
     try:
         user = database.create_user(
             name,
@@ -237,6 +259,7 @@ def auth_signup():
             gender,
             profile["height_cm"],
             profile["weight_kg"],
+            CONSENT_NOTICE_VERSION,
         )
     except Exception:
         app.logger.exception("Account creation failed.")
@@ -264,8 +287,11 @@ def auth_login():
     if not isinstance(email, str) or not isinstance(password, str):
         return jsonify({"status": "error", "message": "Invalid email or password."}), 401
     email = email.strip().lower()
-    password_bytes = password.encode("utf-8")
-    if len(password_bytes) > 72:
+    try:
+        password_bytes = password.encode("utf-8")
+    except UnicodeEncodeError:
+        return jsonify({"status": "error", "message": "Invalid email or password."}), 401
+    if len(password_bytes) > 1024:
         return jsonify({"status": "error", "message": "Invalid email or password."}), 401
     try:
         user = database.user_by_email(email)
@@ -273,14 +299,30 @@ def auth_login():
         app.logger.exception("Account lookup failed.")
         return jsonify({"status": "error", "message": "Login is unavailable. Try again later."}), 503
 
-    stored_hash = user["password_hash"].encode("ascii") if user else DUMMY_PASSWORD_HASH
+    stored_hash = user["password_hash"] if user else DUMMY_PASSWORD_HASH
+    if user and not stored_hash.startswith("$argon2id$"):
+        try:
+            password_hasher.verify(DUMMY_PASSWORD_HASH, password)
+        except VerifyMismatchError:
+            pass
+        app.logger.warning("Account %s uses an unsupported password hash and needs a reset.", user["id"])
+        return jsonify({"status": "error", "message": "Invalid email or password. Reset the password to continue."}), 401
     try:
-        password_matches = bcrypt.checkpw(password_bytes, stored_hash)
-    except (ValueError, TypeError):
+        password_matches = password_hasher.verify(stored_hash, password)
+    except VerifyMismatchError:
+        password_matches = False
+    except (InvalidHashError, VerificationError, ValueError, TypeError):
         app.logger.error("Stored password hash is invalid.")
         return jsonify({"status": "error", "message": "Login is unavailable. Contact support."}), 503
     if not user or not password_matches:
         return jsonify({"status": "error", "message": "Invalid email or password."}), 401
+
+    if password_hasher.check_needs_rehash(stored_hash):
+        try:
+            database.update_password_hash(user["id"], password_hasher.hash(password))
+        except Exception:
+            app.logger.exception("Could not upgrade the account password hash.")
+            return jsonify({"status": "error", "message": "Login is temporarily unavailable. Try again later."}), 503
 
     session.clear()
     session["user_id"] = user["id"]
@@ -304,6 +346,71 @@ def auth_me():
         session.clear()
         return jsonify({"status": "error", "message": "Account no longer exists."}), 401
     return jsonify({"status": "success", "user": _account_payload(user)})
+
+
+@app.route("/api/journal", methods=["GET", "POST"])
+def journal_route():
+    error = database_unavailable()
+    if error:
+        return error
+
+    if request.method == "GET":
+        try:
+            entries = database.journal_entries(g.user_id)
+        except Exception:
+            app.logger.exception("Could not load journal entries.")
+            return jsonify({"status": "error", "message": "Could not load journal entries."}), 503
+        return jsonify({
+            "status": "success",
+            "entries": [
+                {
+                    "id": entry["id"],
+                    "note": entry["content"],
+                    "date": entry["created_at"],
+                    "demo": False,
+                }
+                for entry in entries
+            ],
+        })
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"status": "error", "message": "JSON object expected."}), 400
+    content = data.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return jsonify({"status": "error", "message": "Write something before saving."}), 400
+    content = content.strip()
+    if len(content) > 10000:
+        return jsonify({"status": "error", "message": "Journal entries may contain at most 10000 characters."}), 400
+    try:
+        entry = database.create_journal_entry(g.user_id, content)
+    except Exception:
+        app.logger.exception("Could not save journal entry.")
+        return jsonify({"status": "error", "message": "Could not save the journal entry."}), 503
+    return jsonify({
+        "status": "success",
+        "entry": {
+            "id": entry["id"],
+            "note": entry["content"],
+            "date": entry["created_at"],
+            "demo": False,
+        },
+    }), 201
+
+
+@app.route("/api/journal/<int:entry_id>", methods=["DELETE"])
+def delete_journal_route(entry_id):
+    error = database_unavailable()
+    if error:
+        return error
+    try:
+        deleted = database.delete_journal_entry(g.user_id, entry_id)
+    except Exception:
+        app.logger.exception("Could not delete journal entry.")
+        return jsonify({"status": "error", "message": "Could not delete the journal entry."}), 503
+    if not deleted:
+        return jsonify({"status": "error", "message": "Journal entry not found."}), 404
+    return jsonify({"status": "success"})
 
 
 @app.route("/dashboard")
